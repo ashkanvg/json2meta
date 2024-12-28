@@ -1,27 +1,29 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <sstream>
+#include <unordered_map>
 #include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
 
 // Helper function to determine the C++ type based on JSON value type
 std::string determineType(const std::string& key, const rapidjson::Value& value) {
-    if (value.IsNull()) {
-        return "JNullType<K_L1_" + key + ">";
-    } else if (value.IsString()) {
-        return "StringFun<K_L1_" + key + ", STATIC_STRING_SIZE>";
-    } else if (value.IsBool()) {
+    if (value.IsBool()) {
         return "JBool<uint8_t, K_L1_" + key + ">";
+    } else if (value.IsNull()) {
+        return "JNullType<K_L1_" + key + ">";
     } else if (value.IsInt()) {
         return "JNumber<uint32_t, K_L1_" + key + ">";
     } else if (value.IsDouble()) {
         return "JRealNumber<float, K_L1_" + key + ">";
+    } else if (value.IsString()) {
+        return "StringFun<K_L1_" + key + ", STATIC_STRING_SIZE>";
     } else if (value.IsArray()) {
-        return "JArray<mp_list<>, DictOpts>"; // Simplified handling for arrays
+        return "JArray<mp_list<>, DictOpts>";
     } else if (value.IsObject()) {
-        return "JDict<mp_list<>, DictOpts>"; // Simplified handling for nested objects
+        return "JDict<mp_list<>, DictOpts>";
     }
-    return "UnknownType"; // Fallback for unexpected types
+    return "UnknownType";
 }
 
 // Helper function to format keys for metastring definitions
@@ -76,28 +78,44 @@ void generateCuhFile(const std::string& jsonFile, const std::string& outputFile)
 
     // Write the DictCreator template
     outputFileStream << "\n// DICT\n";
-    outputFileStream << "#define STATIC_STRING_SIZE 256\n";
+    outputFileStream << "#define STATIC_STRING_SIZE 32\n";
     outputFileStream << "template<template<class, int> class StringFun, class DictOpts>\n";
-    outputFileStream << "using DictCreator = JDict<mp_list<\n";
+    outputFileStream << "using DictCreator = JDict < mp_list <\n";
 
     for (auto it = document.MemberBegin(); it != document.MemberEnd(); ++it) {
         std::string key = formatKey(it->name.GetString());
         std::string type = determineType(key, it->value);
-        outputFileStream << "    mp_list<K_L1_" << key << ", " << type << ">";
+        outputFileStream << "        mp_list<K_L1_" << key << ", " << type << ">";
         if (std::next(it) != document.MemberEnd()) {
             outputFileStream << ",";
         }
         outputFileStream << "\n";
     }
 
-    outputFileStream << ">, DictOpts>;\n\n";
+    outputFileStream << ">,\n        DictOpts\n> ;\n\n";
 
-    // Write helper definitions
-    outputFileStream << "// Definitions for null values, custom types (e.g., arrays, dictionaries), and strings\n";
-    outputFileStream << "template<class Key>\n";
-    outputFileStream << "struct JNullType {\n";
-    outputFileStream << "    using value_type = std::nullptr_t;\n";
-    outputFileStream << "};\n\n";
+    // Write the dtype map for cudf
+    outputFileStream << "#ifdef HAVE_LIBCUDF\n";
+    outputFileStream << "#define HAVE_DTYPES\n";
+    outputFileStream << "std::map<std::string, cudf::data_type> dtypes{\n";
+    for (auto it = document.MemberBegin(); it != document.MemberEnd(); ++it) {
+        std::string key = formatKey(it->name.GetString());
+        if (it->value.IsBool()) {
+            outputFileStream << "    { \"" << it->name.GetString() << "\", cudf::data_type{cudf::type_id::BOOL8} }";
+        } else if (it->value.IsInt()) {
+            outputFileStream << "    { \"" << it->name.GetString() << "\", cudf::data_type{cudf::type_id::INT32} }";
+        } else if (it->value.IsDouble()) {
+            outputFileStream << "    { \"" << it->name.GetString() << "\", cudf::data_type{cudf::type_id::FLOAT64} }";
+        } else {
+            continue;
+        }
+        if (std::next(it) != document.MemberEnd()) {
+            outputFileStream << ",";
+        }
+        outputFileStream << "\n";
+    }
+    outputFileStream << "};\n";
+    outputFileStream << "#endif\n\n";
 
     // Close the header guard
     outputFileStream << "#endif /* !defined(META_CUDF_META_DEF_CUH) */\n";
