@@ -1,0 +1,3 @@
+/Users/ashkan/CLionProjects/json2meta/cmake-build-debug/CMakeFiles/json2meta.dir
+/Users/ashkan/CLionProjects/json2meta/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/ashkan/CLionProjects/json2meta/cmake-build-debug/CMakeFiles/rebuild_cache.dir
